@@ -29,16 +29,6 @@ func init() {
 		return
 	}
 
-	if accessKey = os.Getenv("AWS_ACCESS_KEY"); len(accessKey) == 0 {
-		logrus.Info("AWS_ACCESS_KEY is not set, skipping init of Route 53 provider")
-		return
-	}
-
-	if secretKey = os.Getenv("AWS_SECRET_KEY"); len(secretKey) == 0 {
-		logrus.Info("AWS_SECRET_KEY is not set, skipping init of Route 53 provider")
-		return
-	}
-
 	handler := &Route53Handler{}
 	if err := RegisterProvider("route53", handler); err != nil {
 		logrus.Fatal("Could not register route53 provider")
@@ -49,10 +39,15 @@ func init() {
 	// requests once the API returns a "Rate exceeded" error.
 	handler.limiter = ratelimit.NewBucketWithRate(5.0, 1)
 
-	creds := credentials.NewStaticCredentials(accessKey, secretKey, "")
 	config := aws.NewConfig().WithMaxRetries(route53MaxRetries).
-		WithCredentials(creds).
 		WithRegion(region)
+
+	accessKey = os.Getenv("AWS_ACCESS_KEY")
+	secretKey = os.Getenv("AWS_SECRET_KEY")
+	if len(accessKey) != 0 && len(secretKey) != 0 {
+		creds := credentials.NewStaticCredentials(accessKey, secretKey, "")
+		config.WithCredentials(creds)
+	}
 
 	handler.client = route53.New(session.New(config))
 
@@ -69,7 +64,7 @@ func (r *Route53Handler) setHostedZone() error {
 		r.hostedZoneId = strings.TrimSpace(envVal)
 		return nil
 	}
-	
+
 	r.limiter.Wait(1)
 	params := &route53.ListHostedZonesByNameInput{
 		DNSName:  aws.String(strings.TrimSuffix(dns.RootDomainName, ".")),
@@ -167,7 +162,7 @@ func (r *Route53Handler) GetRecords() ([]dns.DnsRecord, error) {
 		for _, rr := range rrSet.ResourceRecords {
 			records = append(records, *rr.Value)
 		}
-		
+
 		dnsRecord := dns.DnsRecord{
 			Fqdn: *rrSet.Name,
 			Records: records,
